@@ -1,42 +1,46 @@
 name: Build, Push and Deploy
 
+# ทำงานเมื่อมีการสร้าง Release ใหม่
 on:
-  push:
-    branches: [ "main" ] # ทำงานเมื่อมีการ push ไปที่ branch main
+  release:
+    types: [ published ] # ทำงานเฉพาะตอนที่ Release ถูก Published (ไม่ใช่ draft)
 
 env:
   REGISTRY: ghcr.io
-  # ชื่อ Image: ghcr.io/ชื่อผู้ใช้/ชื่ออิมเมจ
+  # ชื่อ Image จะเป็น ghcr.io/donnie3237/nest-cicd โดยอัตโนมัติ
   IMAGE_NAME: ${{ github.repository }}
-  # Repo ที่เก็บ Manifests
-  MANIFEST_REPO: YOUR_GITHUB_USERNAME/my-app-manifests
 
 jobs:
+  # -- Job ที่ 1: สร้าง Docker Image และ Push ไปยัง GHCR --
   build-and-push-image:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # สิทธิ์ในการ push ไปยัง GHCR
+      packages: write
+
+    outputs:
+      # ส่งชื่อ tag ของ release (เช่น v1.0.0) ไปให้ job ถัดไป
+      image_tag: ${{ steps.meta.outputs.version }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Log in to the Container registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }} # ใช้ GITHUB_TOKEN ก็พอสำหรับ GHCR
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # ใช้ SHA ของ commit เป็น image tag
           tags: |
-            type=sha,prefix=,format=short
+            # ใช้ Git Tag ของ Release เป็น Docker Tag (เช่น v1.0.0)
+            type=semver,pattern={{version}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -46,32 +50,33 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+  # -- Job ที่ 2: อัปเดตไฟล์ Manifest ใน Repository เดียวกัน --
   update-manifest:
-    needs: build-and-push-image # ต้องรอ job ที่แล้วเสร็จก่อน
+    # ต้องรอ job แรกเสร็จก่อน
+    needs: build-and-push-image
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Manifest Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.MANIFEST_REPO }}
-          token: ${{ secrets.PAT }} # ใช้ PAT ที่สร้างไว้เพื่อ push ไปยังอีก repo
+          token: ${{ secrets.PAT }} # <-- ยังคงต้องใช้ PAT นะครับ
 
-      - name: Get Image Tag
-        # ดึง image tag ที่สร้างจาก job ที่แล้ว
-        # วิธีนี้ซับซ้อนไปหน่อย ขอใช้วิธีที่ง่ายกว่าโดยสร้าง tag จาก SHA ตรงๆ
-        run: echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Update Kubernetes manifest
+      - name: Update Kubernetes manifest file
         run: |
-          # ใช้ sed เพื่อค้นหาและแทนที่ image tag ในไฟล์ deployment
-          sed -i 's|image: .*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}|g' k8s/deployment.yaml
-          cat k8s/deployment.yaml # แสดงไฟล์ที่แก้ไขแล้วเพื่อตรวจสอบ
+          IMAGE_TAG="${{ needs.build-and-push-image.outputs.image_tag }}"
+          echo "Updating manifest with image tag: $IMAGE_TAG"
+
+          # แก้ไขไฟล์ deploy.yml เพื่อชี้ไปที่ image tag ใหม่
+          sed -i 's|image: .*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}|g' k8s/deploy.yml
+
+          echo "--- Updated k8s/deploy.yml ---"
+          cat k8s/deploy.yml
 
       - name: Commit and push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add k8s/deployment.yaml
-          git commit -m "Update image tag to ${{ env.IMAGE_TAG }} for nestjs-app" || echo "No changes to commit"
+          git add k8s/deploy.yml
+          git commit -m "Update image to ${{ env.IMAGE_NAME }}:${{ needs.build-and-push-image.outputs.image_tag }}" || echo "No changes to commit"
           git push
