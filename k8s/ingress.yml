@@ -1,0 +1,14 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nestjs-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`nest.dossware.com`)
+      kind: Rule
+      services:
+        - name: nestjs-app-service # ชื่อ Service ของแอปเรา
+          port: 80 # Port ของ Service ที่เราจะให้ Traefik คุยด้วย
