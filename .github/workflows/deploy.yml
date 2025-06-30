@@ -1,0 +1,77 @@
+name: Build, Push and Deploy
+
+on:
+  push:
+    branches: [ "main" ] # ทำงานเมื่อมีการ push ไปที่ branch main
+
+env:
+  REGISTRY: ghcr.io
+  # ชื่อ Image: ghcr.io/ชื่อผู้ใช้/ชื่ออิมเมจ
+  IMAGE_NAME: ${{ github.repository }}
+  # Repo ที่เก็บ Manifests
+  MANIFEST_REPO: YOUR_GITHUB_USERNAME/my-app-manifests
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # สิทธิ์ในการ push ไปยัง GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # ใช้ GITHUB_TOKEN ก็พอสำหรับ GHCR
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # ใช้ SHA ของ commit เป็น image tag
+          tags: |
+            type=sha,prefix=,format=short
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  update-manifest:
+    needs: build-and-push-image # ต้องรอ job ที่แล้วเสร็จก่อน
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Manifest Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MANIFEST_REPO }}
+          token: ${{ secrets.PAT }} # ใช้ PAT ที่สร้างไว้เพื่อ push ไปยังอีก repo
+
+      - name: Get Image Tag
+        # ดึง image tag ที่สร้างจาก job ที่แล้ว
+        # วิธีนี้ซับซ้อนไปหน่อย ขอใช้วิธีที่ง่ายกว่าโดยสร้าง tag จาก SHA ตรงๆ
+        run: echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Update Kubernetes manifest
+        run: |
+          # ใช้ sed เพื่อค้นหาและแทนที่ image tag ในไฟล์ deployment
+          sed -i 's|image: .*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}|g' k8s/deployment.yaml
+          cat k8s/deployment.yaml # แสดงไฟล์ที่แก้ไขแล้วเพื่อตรวจสอบ
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add k8s/deployment.yaml
+          git commit -m "Update image tag to ${{ env.IMAGE_TAG }} for nestjs-app" || echo "No changes to commit"
+          git push

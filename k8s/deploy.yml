@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nestjs-app-deployment
+  namespace: default # หรือ namespace ที่คุณต้องการ
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nestjs-app
+  template:
+    metadata:
+      labels:
+        app: nestjs-app
+    spec:
+      containers:
+      - name: nestjs-app
+        # นี่คือส่วนสำคัญ! เราจะใช้ placeholder ที่ GitHub Actions จะมาแก้ทีหลัง
+        image: ghcr.io/donnie3237/nest-cicd:latest
+        ports:
+        - containerPort: 3000

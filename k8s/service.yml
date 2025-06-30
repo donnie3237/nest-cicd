@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nestjs-app-service
+  namespace: default # หรือ namespace ที่คุณต้องการ
+spec:
+  selector:
+    app: nestjs-app
+  ports:
+    - protocol: TCP
+      port: 80 # Port ที่จะเปิดให้ภายนอกเรียก
+      targetPort: 3000 # Port ของ container ใน Pod
+  type: LoadBalancer # หรือ NodePort/ClusterIP ตามความต้องการ
