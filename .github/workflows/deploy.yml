@@ -1,5 +1,6 @@
 name: Build, Push and Deploy
 
+# ทำงานเมื่อมีการสร้าง Release ใหม่
 on:
   release:
     types: [ published ] # ทำงานเฉพาะตอนที่ Release ถูก Published (ไม่ใช่ draft)
@@ -56,7 +57,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # <<< CHANGED >>> กลับไปใช้ checkout แบบปกติ ไม่ต้องระบุ ref
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -79,5 +79,5 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add k8s/deploy.yml
           git commit -m "Update image to ${{ env.IMAGE_NAME }}:${{ needs.build-and-push-image.outputs.image_tag }}" || echo "No changes to commit"
-          # <<< CHANGED >>> แก้ไข git push ให้ระบุ branch ปลายทางโดยตรง
-          git push origin HEAD:main
+          # <<< CHANGED >>> แก้ไข git push ให้ใช้ Full Refname
+          git push origin HEAD:refs/heads/main
