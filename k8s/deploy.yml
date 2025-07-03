@@ -16,6 +16,6 @@ spec:
       containers:
       - name: nestjs-app
         # นี่คือส่วนสำคัญ! เราจะใช้ placeholder ที่ GitHub Actions จะมาแก้ทีหลัง
-        image: ghcr.io/donnie3237/nest-cicd:latest
+        image: ghcr.io/donnie3237/nest-cicd:${IMAGE_TAG}
         ports:
         - containerPort: 3000
